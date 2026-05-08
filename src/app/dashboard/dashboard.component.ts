@@ -1,8 +1,11 @@
-import { Component, OnInit, AfterViewInit } from '@angular/core';
+import { Component, OnInit, AfterViewInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ApiService, DashboardStatsDto } from '../services/api.service';
+import { SettingsService, Appointment, EffectiveStatus } from '../services/settings.service';
+import { Subscription } from 'rxjs';
 
 declare var google: any;
+
+interface DayHour { hour: string; count: number; }
 
 @Component({
   selector: 'app-dashboard',
@@ -10,185 +13,251 @@ declare var google: any;
   imports: [CommonModule],
   template: `
     <div class="space-y-6 animate-fade-in">
-      <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+
+      <!-- Header -->
+      <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 class="text-2xl font-bold text-slate-800">Reportes y Métricas</h2>
-          <p class="text-slate-500">Visualización de rendimiento y estado del negocio.</p>
+          <h2 class="text-2xl font-bold text-slate-800">Panel de Control</h2>
+          <p class="text-slate-400 text-sm">{{today}}</p>
         </div>
-        <button (click)="enviarReporteWhatsapp()" class="bg-emerald-600 hover:bg-emerald-700 hover:shadow-lg transition-all duration-300 text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 shadow-emerald-100">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
-          Enviar Reporte al Dueño
+        <button (click)="sendReport()"
+          class="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white px-5 py-2.5 rounded-xl font-medium text-sm shadow-sm transition-all">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+          Enviar Reporte
         </button>
       </div>
 
-      <!-- Stats Grid -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col hover:shadow-md transition-shadow">
-          <div class="flex items-center gap-3 text-slate-500 mb-4">
-            <div class="p-2 bg-sky-50 text-sky-500 rounded-lg">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-            </div>
-            <span class="font-medium text-sm">Citas Totales</span>
-          </div>
-          <div class="text-3xl font-bold text-slate-800">{{ totalAppointments }}</div>
+      <!-- KPI Cards -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Total activas</p>
+          <p class="text-3xl font-black text-slate-800">{{totalActive}}</p>
+          <p class="text-[10px] text-slate-400 mt-1">sin canceladas</p>
         </div>
-
-        <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col hover:shadow-md transition-shadow">
-          <div class="flex items-center gap-3 text-slate-500 mb-4">
-            <div class="p-2 bg-emerald-50 text-emerald-500 rounded-lg">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
-            </div>
-            <span class="font-medium text-sm">Confirmadas</span>
-          </div>
-          <div class="text-3xl font-bold text-slate-800">{{ confirmedCount }}</div>
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Completadas</p>
+          <p class="text-3xl font-black text-emerald-600">{{completedCount}}</p>
+          <p class="text-[10px] text-slate-400 mt-1">históricas</p>
         </div>
-
-        <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col hover:shadow-md transition-shadow">
-          <div class="flex items-center gap-3 text-slate-500 mb-4">
-            <div class="p-2 bg-orange-50 text-orange-500 rounded-lg">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3" /></svg>
-            </div>
-            <span class="font-medium text-sm">Pendientes</span>
-          </div>
-          <div class="text-3xl font-bold text-slate-800">{{ pendingCount }}</div>
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">Pendientes</p>
+          <p class="text-3xl font-black text-amber-500">{{pendingCount}}</p>
+          <p class="text-[10px] text-slate-400 mt-1">por confirmar</p>
         </div>
-
-        <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 flex flex-col hover:shadow-md transition-shadow">
-          <div class="flex items-center gap-3 text-slate-500 mb-4">
-            <div class="p-2 bg-violet-50 text-violet-500 rounded-lg">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-            </div>
-            <span class="font-medium text-sm">Ingresos Estimados</span>
-          </div>
-          <div class="text-3xl font-bold text-slate-800">S/. {{ estimatedRevenue }}</div>
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-emerald-100 hover:shadow-md transition-shadow bg-emerald-50/30">
+          <p class="text-xs font-medium text-emerald-600 uppercase tracking-wider mb-2">Ingresos promo</p>
+          <p class="text-2xl font-black text-emerald-700">S/. {{revenue}}</p>
+          <p class="text-[10px] text-emerald-500 mt-1">citas confirmadas</p>
         </div>
       </div>
 
-      <!-- Charts Area -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-10">
-        <div class="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 hover:shadow-md transition-all">
-          <h3 class="font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <span class="w-2 h-6 bg-emerald-500 rounded-full"></span>
-            Distribución por Tratamiento
-          </h3>
-          <div id="piechart" class="w-full h-80 flex items-center justify-center text-slate-400">
-            <div class="animate-pulse flex gap-2"><div class="w-2 h-2 bg-slate-300 rounded-full"></div><div class="w-2 h-2 bg-slate-300 rounded-full"></div><div class="w-2 h-2 bg-slate-300 rounded-full"></div></div>
+      <!-- Stats Row -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex items-center gap-4">
+          <div class="p-3 bg-teal-50 rounded-xl shrink-0">
+            <svg class="h-5 w-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 font-medium uppercase tracking-wider">Tratamiento top</p>
+            <p class="font-bold text-slate-800 mt-0.5">{{topTreatment?.name || '—'}}</p>
+            <p class="text-[10px] text-slate-400">{{topTreatment?.count || 0}} citas</p>
           </div>
         </div>
-        
-        <div class="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 hover:shadow-md transition-all">
-          <h3 class="font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <span class="w-2 h-6 bg-sky-500 rounded-full"></span>
-            Flujo de Citas del Día
-          </h3>
-          <div id="columnchart" class="w-full h-80 flex items-center justify-center text-slate-400">
-            <div class="animate-pulse flex gap-2"><div class="w-2 h-2 bg-slate-300 rounded-full"></div><div class="w-2 h-2 bg-slate-300 rounded-full"></div><div class="w-2 h-2 bg-slate-300 rounded-full"></div></div>
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex items-center gap-4">
+          <div class="p-3 bg-sky-50 rounded-xl shrink-0">
+            <svg class="h-5 w-5 text-sky-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 font-medium uppercase tracking-wider">Sede con más citas</p>
+            <p class="font-bold text-slate-800 mt-0.5">{{topBranch?.name || '—'}}</p>
+            <p class="text-[10px] text-slate-400">{{topBranch?.count || 0}} citas</p>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex items-center gap-4">
+          <div class="p-3 bg-rose-50 rounded-xl shrink-0">
+            <svg class="h-5 w-5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 font-medium uppercase tracking-wider">Canceladas</p>
+            <p class="font-bold text-slate-800 mt-0.5">{{cancelledCount}}</p>
+            <p class="text-[10px] text-slate-400">total histórico</p>
           </div>
         </div>
       </div>
+
+      <!-- Charts or Empty -->
+      <ng-container *ngIf="appointments.length > 0; else emptyState">
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-10">
+          <div class="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+            <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider mb-5">Por Tratamiento</h3>
+            <div id="piechart" class="w-full h-64"></div>
+          </div>
+          <div class="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
+            <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider mb-5">Por Sede</h3>
+            <div id="branchchart" class="w-full h-64"></div>
+          </div>
+          <div class="bg-white rounded-3xl p-8 shadow-sm border border-slate-100 lg:col-span-2">
+            <h3 class="text-sm font-bold text-slate-700 uppercase tracking-wider mb-5">Flujo por Hora — Hoy</h3>
+            <div id="hourchart" class="w-full h-52"></div>
+          </div>
+        </div>
+      </ng-container>
+
+      <ng-template #emptyState>
+        <div class="bg-white rounded-3xl p-20 border border-slate-100 flex flex-col items-center text-center">
+          <div class="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mb-4">
+            <svg class="h-7 w-7 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          </div>
+          <h3 class="text-lg font-bold text-slate-700 mb-1">Sin datos aún</h3>
+          <p class="text-slate-400 text-sm">Los gráficos se generarán cuando se registren citas.</p>
+        </div>
+      </ng-template>
     </div>
   `
 })
-export class DashboardComponent implements OnInit, AfterViewInit {
-  totalAppointments = 0;
-  confirmedCount = 0;
-  pendingCount = 0;
-  estimatedRevenue = 0;
-  
-  appointments: any[] = [];
-  pendingRequests: any[] = [];
+export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
+  appointments: Appointment[] = [];
+  today = new Date().toLocaleDateString('es-PE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
-  constructor(private api: ApiService) {}
+  totalActive = 0;
+  completedCount = 0;
+  pendingCount = 0;
+  cancelledCount = 0;
+  revenue = 0;
+  topTreatment: { name: string; count: number } | null = null;
+  topBranch: { name: string; count: number } | null = null;
+
+  private sub!: Subscription;
+  private chartsReady = false;
+
+  constructor(private settings: SettingsService) {}
 
   ngOnInit() {
-    this.loadData();
-  }
-
-  loadData() {
-    this.api.getAppointments().subscribe(apiData => {
-      // apiData ya contiene la información unificada desde el servicio
-      this.appointments = apiData;
-      
-      this.totalAppointments = this.appointments.length;
-      this.confirmedCount = this.appointments.filter(a => a.status === 'Scheduled' || a.status === 'Confirmed' || a.status === 'Completed').length;
-      this.pendingCount = this.appointments.filter(a => a.status === 'Pending' || (a.status as any) === 'PENDIENTE').length;
-      
-      // Calcular ingresos reales basados en el precio de cada cita
-      this.estimatedRevenue = this.appointments
-        .filter(a => a.status === 'Scheduled' || a.status === 'Confirmed' || a.status === 'Completed')
-        .reduce((acc, curr) => acc + (Number(curr.price) || 0), 0);
-
-      if (typeof google !== 'undefined' && google.charts && google.charts.visualizations) {
-        this.drawCharts();
-      }
+    this.sub = this.settings.getAppointments$().subscribe(data => {
+      this.appointments = data;
+      this.computeMetrics();
+      if (this.chartsReady && data.length > 0) setTimeout(() => this.drawCharts(), 50);
     });
-  }
-
-  enviarReporteWhatsapp() {
-    const text = `*SISTEMA DE GESTIÓN | DEPILZONE*%0A%0A¡Hola! Aquí está el reporte actualizado:%0A📊 Citas Totales: ${this.totalAppointments}%0A✅ Confirmadas: ${this.confirmedCount}%0A⏳ Pendientes: ${this.pendingCount}%0A💰 Ingresos Estimados: S/. ${this.estimatedRevenue}`;
-    window.open(`https://wa.me/51960227116?text=${text}`, '_blank');
   }
 
   ngAfterViewInit() {
-    if (typeof google !== 'undefined' && google.charts) {
-      google.charts.load('current', { 'packages': ['corechart'] });
-      google.charts.setOnLoadCallback(() => this.drawCharts());
-    } else {
-      setTimeout(() => {
-        if (typeof google !== 'undefined' && google.charts) {
-          google.charts.load('current', { 'packages': ['corechart'] });
-          google.charts.setOnLoadCallback(() => this.drawCharts());
-        }
-      }, 1000);
-    }
+    const load = () => {
+      if (typeof google !== 'undefined' && google.charts) {
+        google.charts.load('current', { packages: ['corechart'] });
+        google.charts.setOnLoadCallback(() => {
+          this.chartsReady = true;
+          if (this.appointments.length > 0) this.drawCharts();
+        });
+      } else {
+        setTimeout(load, 1500);
+      }
+    };
+    load();
+  }
+
+  ngOnDestroy() { this.sub?.unsubscribe(); }
+
+  computeMetrics() {
+    const all = this.appointments;
+    const active = all.filter(a => a.status !== 'Cancelled');
+
+    this.totalActive = active.length;
+    this.cancelledCount = all.filter(a => a.status === 'Cancelled').length;
+    this.pendingCount = all.filter(a => a.status === 'Pending').length;
+
+    // Completed: effective status = completed (past scheduled appointments)
+    this.completedCount = active.filter(a => {
+      const eff = this.settings.computeEffectiveStatus(a);
+      return eff === 'completed';
+    }).length;
+
+    // Revenue: confirmed (Scheduled) appointments only
+    this.revenue = active
+      .filter(a => a.status === 'Scheduled')
+      .reduce((sum, a) => sum + (a.promoPrice || 0), 0);
+
+    this.topTreatment = this.settings.getTopTreatment();
+    this.topBranch = this.settings.getTopBranch();
   }
 
   drawCharts() {
-    if (!document.getElementById('piechart')) return;
+    if (!this.chartsReady || !document.getElementById('piechart')) return;
+    const active = this.appointments.filter(a => a.status !== 'Cancelled');
+    const fontName = 'Inter, sans-serif';
+    const chartColors = ['#0d9488', '#0284c7', '#7c3aed', '#d97706', '#e11d48', '#16a34a'];
 
-    // Treatment Data logic
-    const treatmentMap: any = {};
-    [...this.appointments, ...this.pendingRequests].forEach(a => {
-      const t = a.treatment || 'Otros';
-      treatmentMap[t] = (treatmentMap[t] || 0) + 1;
-    });
-
-    const pieDataArray = [['Tratamiento', 'Citas']];
-    for (const key in treatmentMap) {
-      pieDataArray.push([key, treatmentMap[key]]);
+    // Treatment pie
+    const treatMap: Record<string, number> = {};
+    active.forEach(a => treatMap[a.treatment] = (treatMap[a.treatment] || 0) + 1);
+    if (Object.keys(treatMap).length && document.getElementById('piechart')) {
+      const data = google.visualization.arrayToDataTable([
+        ['Tratamiento', 'Citas'], ...Object.entries(treatMap)
+      ]);
+      new google.visualization.PieChart(document.getElementById('piechart')).draw(data, {
+        pieHole: 0.55, colors: chartColors,
+        chartArea: { width: '92%', height: '85%' },
+        legend: { position: 'bottom', textStyle: { fontSize: 10, color: '#64748b', fontName } },
+        backgroundColor: 'transparent',
+        animation: { startup: true, duration: 500 }
+      });
     }
 
-    const pieData = google.visualization.arrayToDataTable(pieDataArray);
-    const pieOptions = {
-      pieHole: 0.4,
-      colors: ['#0ea5e9', '#8b5cf6', '#10b981', '#f43f5e', '#f97316'],
-      chartArea: { width: '90%', height: '80%' },
-      legend: { position: 'bottom' },
-      backgroundColor: 'transparent'
-    };
+    // Branch column
+    const branchMap: Record<string, number> = {};
+    active.forEach(a => branchMap[a.branchName] = (branchMap[a.branchName] || 0) + 1);
+    if (Object.keys(branchMap).length && document.getElementById('branchchart')) {
+      const data = google.visualization.arrayToDataTable([
+        ['Sede', 'Citas', { role: 'style' }],
+        ...Object.entries(branchMap).map(([k, v]) => [k, v, 'color: #0d9488'])
+      ]);
+      new google.visualization.ColumnChart(document.getElementById('branchchart')).draw(data, {
+        chartArea: { width: '80%', height: '72%' }, legend: { position: 'none' },
+        hAxis: { textStyle: { fontSize: 9, color: '#94a3b8', fontName } },
+        vAxis: { minValue: 0, format: '0', gridlines: { color: '#f1f5f9' }, textStyle: { fontSize: 9, color: '#94a3b8' } },
+        backgroundColor: 'transparent',
+        animation: { startup: true, duration: 500 }
+      });
+    }
 
-    const pieChart = new google.visualization.PieChart(document.getElementById('piechart'));
-    pieChart.draw(pieData, pieOptions);
+    // Hourly flow — today
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayAppts = this.appointments.filter(a => a.date === todayStr && a.status !== 'Cancelled');
+    const hours = ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00','19:00','20:00','21:00'];
+    const hourMap: Record<string, number> = {};
+    hours.forEach(h => hourMap[h] = 0);
+    todayAppts.forEach(a => { if (hourMap[a.time] !== undefined) hourMap[a.time]++; });
+    if (document.getElementById('hourchart')) {
+      const data = google.visualization.arrayToDataTable([
+        ['Hora', 'Citas', { role: 'style' }],
+        ...hours.map(h => [h, hourMap[h], `color: ${hourMap[h] > 0 ? '#0d9488' : '#e2e8f0'}`])
+      ]);
+      new google.visualization.ColumnChart(document.getElementById('hourchart')).draw(data, {
+        chartArea: { width: '92%', height: '72%' }, legend: { position: 'none' },
+        hAxis: { textStyle: { fontSize: 8, color: '#94a3b8', fontName }, slantedText: true, slantedTextAngle: 45 },
+        vAxis: { minValue: 0, format: '0', gridlines: { color: '#f1f5f9' } },
+        backgroundColor: 'transparent',
+        animation: { startup: true, duration: 500 }
+      });
+    }
+  }
 
-    // Occupation logic (simplified for today)
-    const hours = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
-    const colDataArray: any[] = [['Hora', 'Citas']];
-    
-    hours.forEach(h => {
-      const count = this.appointments.filter(a => (a.startTime || '').includes(h)).length;
-      colDataArray.push([h, count]);
-    });
-
-    const colData = google.visualization.arrayToDataTable(colDataArray);
-    const colOptions = {
-      colors: ['#0ea5e9'],
-      chartArea: { width: '80%', height: '70%' },
-      legend: { position: 'none' },
-      vAxis: { minValue: 0, format: '0' },
-      backgroundColor: 'transparent'
-    };
-
-    const colChart = new google.visualization.ColumnChart(document.getElementById('columnchart'));
-    colChart.draw(colData, colOptions);
+  sendReport() {
+    const ownerPhone = this.settings.getOwnerPhone();
+    const lines = [
+      'REPORTE DIARIO — DEPILZONE',
+      `Fecha: ${this.today}`,
+      '',
+      `Citas activas: ${this.totalActive}`,
+      `Completadas: ${this.completedCount}`,
+      `Pendientes de confirmacion: ${this.pendingCount}`,
+      `Canceladas: ${this.cancelledCount}`,
+      `Ingresos promo (confirmadas): S/. ${this.revenue}`,
+      '',
+      `Tratamiento mas solicitado: ${this.topTreatment?.name || 'N/A'} (${this.topTreatment?.count || 0})`,
+      `Sede con mas actividad: ${this.topBranch?.name || 'N/A'} (${this.topBranch?.count || 0})`,
+      '',
+      'Generado por DepilZone Smart-Manager'
+    ];
+    window.open(`https://wa.me/${ownerPhone}?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
   }
 }

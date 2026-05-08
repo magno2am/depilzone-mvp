@@ -109,7 +109,6 @@ export class AppComponent {
   isBookingPage = false;
 
   constructor(private router: Router) {
-    console.log("SISTEMA DEPILZONE: Iniciando versión limpia sin datos demo.");
     this.router.events.subscribe(event => {
       if (event instanceof NavigationEnd) {
         this.isBookingPage = event.url === '/' || event.url === '/booking';
